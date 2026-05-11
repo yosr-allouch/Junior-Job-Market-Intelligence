@@ -1,0 +1,347 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 10
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "97c3f6fe-b2a1-4864-9243-ae7f791f293d",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer gsk_...."
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"llama-3.1-8b-instant\",\n  \"temperature\": 0,\n  \"max_tokens\": 500,\n  \"stream\": false,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a company size classifier. Return ONLY a single JSON object. No explanations. No reasoning. No extra text. No markdown.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"You are a strict information extraction system.\\n\\nYou must infer information from context even if it is not explicitly written.\\n\\nExtract ONLY the following fields from the job title and description:\\n\\n1. experience_level: choose ONLY one value from [\\\"junior\\\", \\\"mid\\\", \\\"senior\\\", \\\"unknown\\\"]\\n- Infer from responsibilities, seniority signals, years of experience hints, and role complexity.\\n\\n2. skills: extract required skills or constraints.\\n-certifications: extract required or strictly recommended certifications\\n- If not explicitly listed, infer reasonable qualifications and skills based on the job role.\\n- Keep it short bullet-style in a single string.\\n\\nINPUT:\\nTitle: {{ JSON.stringify($json.title).slice(1, -1) }}\\nDescription: {{ JSON.stringify($json.description).slice(1, -1) }}\\n\\nOUTPUT RULES (VERY IMPORTANT):\\n- Return ONLY valid JSON\\n- Return EXACTLY these 3 keys:\\n  experience_level\\n  skills\\n-certifications\\n No explanations\\n- No extra text\\n- No thinking\\n- No markdown\\n\\nExample format:\\n{\\n  \\\"experience_level\\\": \\\"mid\\\",\\n  \\\"skills\\\": \\\"- Skill 1\\\\n- Skill 2\\\"\\n}\"\n    }\n  ]\n}",
+        "options": {
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 3000
+            }
+          },
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        736,
+        0
+      ],
+      "id": "4ed3e168-3f83-432f-8bd6-74ea161329c3",
+      "name": "LLM fields_extraction"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nreturn items.map(item => {\n  let parsed;\n  \n  // Accès au contenu généré par l'IA (format standard OpenAI/Groq)\n  const content = item.json.choices[0].message.content;\n\n  try {\n    parsed = JSON.parse(content);\n  } catch (e) {\n    console.error(\"Erreur de parsing JSON\", e);\n    parsed = {}; // Objet vide pour éviter de bloquer la suite\n  }\n\n  return {\n    json: {\n      experience_level: parsed.experience_level ?? \"Unknown\",\n      skills: parsed.skills ?? \"\",\n      certifications: parsed.certifications ?? \"\"\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        976,
+        0
+      ],
+      "id": "6b2046ba-5c53-4dc0-89f6-5a450b2971dc",
+      "name": "Structure LLM Response"
+    },
+    {
+      "parameters": {
+        "url": "https://api.adzuna.com/v1/api/jobs/us/search/1",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "app_id",
+              "value": "a52229dc"
+            },
+            {
+              "name": "app_key",
+              "value": "..."
+            },
+            {
+              "name": "results_per_page",
+              "value": "20"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        208,
+        0
+      ],
+      "id": "de09f5ac-1fdc-4c7d-9a34-ba27d8872b43",
+      "name": "Call Adzuna API"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "results",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        416,
+        0
+      ],
+      "id": "3f4dd1ba-1f7a-46fe-87c3-1b9bf7349a22",
+      "name": "Split Out API Response"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "numberInputs": 3,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1280,
+        0
+      ],
+      "id": "231f73d5-61f7-470d-ba94-a7bc27f91747",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://bi-project-c1199f.es.us-central1.gcp.elastic.cloud:443/job_postings/_doc/{{ $json.job_id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1728,
+        16
+      ],
+      "id": "66154a1e-2afb-48ee-a32a-7a5a9e74be4e",
+      "name": "Elastic Search",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "...",
+          "name": "Header Auth account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer gsk_..."
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"llama-3.1-8b-instant\",\n  \"temperature\": 0,\n  \"max_tokens\": 10,\n  \"stream\": false,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a company size classifier. Return ONLY a single JSON object. No explanations. No reasoning. No extra text. No markdown.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"=Classify the size of this company: {{ $json.company.display_name }}\\n\\nReturn ONLY this JSON with ONE word value:\\n{\\\"company_size\\\": \\\"big\\\"}\\n\\nAllowed values: startup, small, mid, big, Unknown\\n\\nRules:\\n- Startup: less than 50 employees\\n- Small: 50 to 100 employees\\n- Mid: 100 to 1000 employees\\n- big: more than 1000 employees\\n- unknown: if not sure\\n\\nDo NOT explain. Do NOT reason. Return ONLY the JSON.\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        672,
+        224
+      ],
+      "id": "a73de4d2-4540-43ac-9d34-9d6c3051eca6",
+      "name": "Company_size extraction"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nreturn items.map(item => {\n  let company_size = \"unknown\";\n  \n  try {\n    const content = item.json.choices[0].message.content;\n    \n    const cleaned = content\n      .replace(/```json/g, '')\n      .replace(/```/g, '')\n      .trim();\n    \n    const parsed = JSON.parse(cleaned);\n    \n    // Handle both \"size\" and \"company_size\" field names\n    const rawSize = parsed.company_size || parsed.size || \"unknown\";\n    \n    // Handle multiple values like \"Small | Mid | Big\" → take first\n    const singleValue = rawSize.includes('|') \n      ? rawSize.split('|')[0].trim() \n      : rawSize.trim();\n    \n    // Normalize to exact vocabulary\n    const validValues = [\"startup\", \"small\", \"mid\", \"big\", \"unknown\"];\n    company_size = validValues.find(\n      v => v.toLowerCase() === singleValue.toLowerCase()\n    ) || \"unknown\";\n    \n  } catch(e) {\n    company_size = \"unknown\";\n  }\n\n  return {\n    json: {\n      size: company_size  \n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        992,
+        224
+      ],
+      "id": "d3fc94c9-f9b2-4750-b957-92495f7b0706",
+      "name": "Structure LLM Response1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\n\nreturn items.map(item => {\n  const d = item.json;\n  \n  // 1. Gestion de la date\n  const rawDate = d.created || new Date().toISOString();\n  const date = new Date(rawDate);\n  const postingDate = date.toISOString().split('T')[0];\n\n  // 2. Localisation (Adzuna area array)\n  const areaArray = d.location?.area || [];\n  const country = areaArray.length > 0 ? areaArray[0] : null;\n  const area = areaArray.slice(1).join(', ') || null;\n  const city = (d.location?.display_name || \"\").split(',')[0].trim() || null;\n\n  // 3. Normalisation contrat\n  let contractType = d.contract_time;\n  if (contractType === 'full_time') contractType = 'Full-time';\n  else if (contractType === 'part_time') contractType = 'Part-time';\n  else contractType = 'Non-Précisé';\n\n  // 4. Fonction utilitaire pour parser les listes (skills, certifs)\n  const parseList = (raw) => {\n    if (Array.isArray(raw)) return raw;\n    if (!raw) return [];\n    if (typeof raw === 'string') {\n      return raw.split('\\n')\n        .map(s => s.replace(/^[-•*]\\s*/, '').trim())\n        .filter(s => s.length > 0);\n    }\n    return [];\n  };\n\n  // 5. Construction du document\n  return {\n    json: {\n      job_id: \"adzuna_\" + d.id,\n      source_name: \"Adzuna\",\n      redirect_url: d.redirect_url || null,\n      posting: {\n        date: postingDate,\n        year: date.getFullYear(),\n        month: date.getMonth() + 1,\n        day: date.getDate()\n      },\n      job_details: {\n        title: d.title || null,\n        role: null,\n        contract_type: contractType,\n        experience: {\n          experience_level: d.experience_level || null,\n          experience_raw: null,\n          experience_extraction_method: \"llm\"\n        },\n        requirements: {\n          // Correction ici : on utilise 'd' (l'item courant) et non $input.first()\n          skills: parseList(d.skills),\n          skills_extraction_method: \"llm\",\n          certifications: parseList(d.certifications)\n        }\n      },\n      company: {\n        name: d.company?.display_name || null,\n        size: d.size || null, // Correction ici\n        profile: null\n      },\n      location: {\n        city: city,\n        country: country,\n        area: area,\n        latitude: d.latitude || null,\n        longitude: d.longitude || null\n      },\n      category: {\n        name: d.category?.label || \"Autre\",\n        tag: d.category?.tag || null\n      },\n      salary: {\n        min: d.salary_min || null,\n        max: d.salary_max || null,\n        range: null,\n        is_predicted: d.salary_is_predicted === \"1\" || false\n      }\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        16
+      ],
+      "id": "c1827792-335d-49bb-8e8c-fb8df07a05d5",
+      "name": "Structure JSON"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Call Adzuna API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LLM fields_extraction": {
+      "main": [
+        [
+          {
+            "node": "Structure LLM Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structure LLM Response": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Adzuna API": {
+      "main": [
+        [
+          {
+            "node": "Split Out API Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out API Response": {
+      "main": [
+        [
+          {
+            "node": "LLM fields_extraction",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Company_size extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Structure JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Elastic Search": {
+      "main": [
+        []
+      ]
+    },
+    "Company_size extraction": {
+      "main": [
+        [
+          {
+            "node": "Structure LLM Response1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structure LLM Response1": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Structure JSON": {
+      "main": [
+        [
+          {
+            "node": "Elastic Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": {
+    "node:Schedule Trigger": {
+      "recurrenceRules": []
+    }
+  },
+  "pinData": {},
+  "triggerCount": 1,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}
